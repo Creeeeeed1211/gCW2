@@ -90,7 +90,7 @@ SimpleMeshData make_cylinder(bool aCapped, std::size_t aSubdivs, Vec3f aColor, M
         // Transform and normalize normal
         Vec4f n4{ normals[i].x, normals[i].y, normals[i].z, 0.f };
         Vec4f nTransformed = N * n4;
-        normals[i] = normalize(Vec3f{ nTransformed.x, nTransformed.y, nTransformed.z });
+        normals[i] = normalize(Vec3f{ 0, 0,0});
     }
 
     std::vector col(pos.size(), aColor);
