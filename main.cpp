@@ -30,7 +30,7 @@
 
 namespace
 {
-
+	bool onF = false;
 	constexpr float kMovementPerSecond_ = 1.5f; // units per second
 	constexpr float kMouseSensitivity_ = 0.01f; // radians per pixel
 
@@ -68,7 +68,6 @@ namespace
 			bool moveUp, moveDown;
 			bool speedUp, speedDown;
 
-
 			float posX;
 			float posY;
 			float posZ;
@@ -78,9 +77,25 @@ namespace
 
 			float lastX, lastY;
 
-
 		} camControl;
+
+		int cameraMode = 0; // 0: Free camera, 1: Follow rocket, 2: Ground-fixed camera
+
+		Vec3f groundCameraPosition = { 6.f, 0.f, 2.0f }; // Position of ground-fixed camera
+		Vec3f fixedCameraPosition = { 4.5f, -0.005f, -5.0f }; // Fixed camera position
+
+		// Animation
+		float rocketYPosition = 0.25f;
+		float rocketXPosition = 4.5f;
+		bool rocketFlying = false;
+		const float rocketInitialY = 0.25f;
+		const float rocketInitialX = 4.5f;
+		float rocketYVelocity = 1;
+		float rocketXVelocity = 2;
+		float dir = 45;
+		float rocketFlyTime = 0.0f;
 	};
+
 
 	void glfw_callback_error_(int, char const*);
 
@@ -89,7 +104,7 @@ namespace
 	void glfw_cb_button_(GLFWwindow*, int, int, int);
 }
 
-GLuint load_texture_2d(const char* filepath) 
+GLuint load_texture_2d(const char* filepath)
 {
 	stbi_set_flip_vertically_on_load(true);
 
@@ -143,7 +158,7 @@ int main() try
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-	glfwWindowHint(GLFW_DEPTH_BITS, 24);
+	glfwWindowHint(GLFW_DEPTH_BITS, 32);
 
 
 
@@ -236,6 +251,9 @@ int main() try
 	glEnable(GL_FRAMEBUFFER_SRGB);
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_CULL_FACE);
+	glCullFace(GL_BACK); // ÂâîÈô§ËÉåÈù¢
+	glFrontFace(GL_CCW); // Á°Æ‰øùÈÄÜÊó∂Èíà‰∏∫Ê≠£Èù¢
+
 	glClearColor(0.5f, 0.5f, 0.5f, 1.0f); // RGBA values for grey
 	// 
 	// TODO: global GL setup goes here
@@ -252,6 +270,11 @@ int main() try
 	glGenBuffers(1, &colVBO);
 	glBindBuffer(GL_ARRAY_BUFFER, colVBO);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(kCubeColors), kCubeColors, GL_STATIC_DRAW);
+
+	GLuint norVBO = 0;
+	glGenBuffers(1, &norVBO);
+	glBindBuffer(GL_ARRAY_BUFFER, norVBO);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(kCubeNormals), kCubeNormals, GL_STATIC_DRAW);
 
 	GLuint posVBOP = 0;
 	glGenBuffers(1, &posVBOP);
@@ -272,7 +295,7 @@ int main() try
 	glGenBuffers(1, &colVBOS);
 	glBindBuffer(GL_ARRAY_BUFFER, colVBOS);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(k3CubeColors), k3CubeColors, GL_STATIC_DRAW);
-	
+
 
 	//VAO
 	GLuint vao = 0;
@@ -285,6 +308,10 @@ int main() try
 	glBindBuffer(GL_ARRAY_BUFFER, colVBO);
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, 0);
 	glEnableVertexAttribArray(1);
+
+	glBindBuffer(GL_ARRAY_BUFFER, norVBO);
+	glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, 0);
+	glEnableVertexAttribArray(2);
 
 	GLuint vaoPtr = 0;
 	glGenVertexArrays(1, &vaoPtr);
@@ -311,43 +338,41 @@ int main() try
 
 
 	auto model = load_wavefront_obj("assets/cw2/langerso.obj");
+	auto launchpadMesh = load_wavefront_obj("assets/cw2/landingpad.obj");
 	GLuint vaoModels = create_vao(model);
+	GLuint launchpadVAO = create_vao(launchpadMesh);
 	std::size_t vertexCounterM = model.positions.size();
+	std::size_t vertexCounterL = launchpadMesh.positions.size();
 
-	//auto modelRocket = load_wavefront_obj("assets/cw2/rocket.obj");
-	//GLuint vaoModelRocket = create_vao(modelRocket);
-	//std::size_t vertexCounterMRocket = model.positions.size();
 
-	
-	auto cylinderW = make_cylinder(true, 16, { 1.0f, 1.0f, 1.0f }, make_translation({-0.075f,0.09f,0.f}) * make_scaling(0.15f, 0.05f, 0.05f)); // ¥¯∂À∏«£¨16∏ˆœ∏∑÷£¨∫Ï…´
-	GLuint vaoCylinder = create_vao(cylinderW); // ¥¥Ω® VAO
-	std::size_t cylinderVertexCount = cylinderW.positions.size(); // ∂•µ„ ˝¡ø
+	auto cylinderW = make_cylinder(true, 16, { 1.0f, 1.0f, 1.0f }, make_translation({ -0.075f,0.09f,0.f }) * make_scaling(0.15f, 0.05f, 0.05f)); // ÔøΩÔøΩÔøΩÀ∏«£ÔøΩ16ÔøΩÔøΩœ∏ÔøΩ÷£ÔøΩÔøΩÔøΩ…´
+	GLuint vaoCylinder = create_vao(cylinderW);
+	std::size_t cylinderVertexCount = cylinderW.positions.size();
 
-	auto cylinder2 = make_cylinder(true, 16, { .0f, .0f, .0f }, make_translation({ -0.02f,0.09f,0.f }) * make_scaling(0.22f, 0.025f, 0.025f)); 
-	GLuint vaoCylinder2 = create_vao(cylinder2); // ¥¥Ω® VAO
-	std::size_t cylinderVertexCount2 = cylinder2.positions.size(); // ∂•µ„ ˝¡ø
+	auto cylinder2 = make_cylinder(true, 16, { .0f, .0f, .0f }, make_translation({ -0.02f,0.09f,0.f }) * make_scaling(0.22f, 0.025f, 0.025f));
+	GLuint vaoCylinder2 = create_vao(cylinder2);
+	std::size_t cylinderVertexCount2 = cylinder2.positions.size();
 
 	//cones
 
 	auto cone1 = make_cone(
-		true,                             // ¥¯µ◊√Ê
-		16,                               // œ∏∑÷ ˝¡ø
-		{ 0.0f, 0.0f, 0.0f },             // ∫⁄…´
-		make_translation({ 0.2f, .09f, 0.f }) * // Œª“∆µΩ cylinder2 ∂•≤ø
-		make_scaling(0.04f, 0.025f, 0.025f)        // Àı∑≈µ◊√Ê∞Îæ∂Œ™ 0.025£¨”Î cylinder2 œ‡Õ¨
+		true,
+		16,
+		{ 0.0f, 0.0f, 0.0f },
+		make_translation({ 0.2f, .09f, 0.f }) *
+		make_scaling(0.04f, 0.025f, 0.025f)
 	);
 
-	GLuint vaoCone1 = create_vao(cone1); // ¥¥Ω® VAO
-	std::size_t coneVertexCount1 = cone1.positions.size(); // ∂•µ„ ˝¡ø
+	GLuint vaoCone1 = create_vao(cone1);
+	std::size_t coneVertexCount1 = cone1.positions.size();
 
 	auto squareCone = make_square_cone(
-		true,                             
-		{ 0.4039f, 0.3294f, 0.2627f, }, make_rotation_x(-std::numbers::pi_v<float> / 2.f)*
-		make_scaling(0.125, 0.125, 0.2)  * make_translation({0,0.f,1}));
+		true,
+		{ 0.4039f, 0.3294f, 0.2627f, }, make_rotation_x(-std::numbers::pi_v<float> / 2.f) *
+		make_scaling(0.125, 0.125, 0.2) * make_translation({ 0,0.f,1 }));
 
 	GLuint vaoSquareCone = create_vao(squareCone);
 	std::size_t squareConeVertexCount = squareCone.positions.size();
-
 
 
 	double lastTime = glfwGetTime(); // Initialize with the current time
@@ -396,6 +421,54 @@ int main() try
 
 			glViewport(0, 0, nwidth, nheight);
 		}
+
+		if (state.rocketFlying)
+		{
+			// Êõ¥Êñ∞È£ûË°åÊó∂Èó¥
+			state.rocketFlyTime += deltaTime;
+
+			//acc
+			float speedMultiplier = 1.0f + (state.rocketFlyTime - 2) * 0.5f; // Á∫øÊÄßÂ¢ûÈïø
+			// float speedMultiplier = 1.0f * std::exp(state.rocketFlyTime * 0.2f); // ÊåáÊï∞Â¢ûÈïøÔºàÂèØÈÄâÔºâ
+
+			// ÊéßÂà∂ÁÅ´ÁÆ≠ËøêÂä®ÈÄªËæë
+			if (state.rocketFlyTime <= 1.5f)
+			{
+				// Ââç1.5ÁßíÂûÇÁõ¥‰∏äÂçáÔºåÈÄüÂ∫¶ÈöèÊó∂Èó¥Â¢ûÈïø
+				state.rocketYPosition += deltaTime * 1.0f;
+				state.dir = 0;
+			}
+			else
+			{
+				state.dir = std::numbers::pi_v<float> / 4.f;
+				// 1.5ÁßíÂêéÁÅ´ÁÆ≠Ê≤øÊõ≤Á∫øËøêÂä®
+				float a = -0.02f;  // ÊéßÂà∂Êõ≤Á∫øÁöÑÂºØÊõ≤Á®ãÂ∫¶
+				float b = -1.0f;   // ÊéßÂà∂Êõ≤Á∫øÁöÑÂÄæÊñúÊñπÂêë
+				float c = state.rocketInitialY + 1.5; // ÂàùÂßãÈ´òÂ∫¶
+
+				// Êõ¥Êñ∞ X Âíå Y ËΩ¥‰ΩçÁΩÆ
+				state.rocketXPosition -= deltaTime * state.rocketXVelocity * speedMultiplier; // X ËΩ¥Ë¥üÊñπÂêëÁßªÂä®
+				state.rocketYPosition = a * (state.rocketXPosition - state.rocketInitialX) * (state.rocketXPosition - state.rocketInitialX)
+					+ b * (state.rocketXPosition - state.rocketInitialX) + c;
+			}
+
+			// Ê£ÄÊü•ÂÅúÊ≠¢Êù°‰ª∂
+			if (state.rocketYPosition < state.rocketInitialY || state.rocketXPosition < -15.0f)
+			{
+				// ÂÅúÊ≠¢È£ûË°åÂπ∂ÈáçÁΩÆÁä∂ÊÄÅ
+				state.rocketFlying = false;
+				state.rocketYPosition = state.rocketInitialY;
+				state.rocketXPosition = state.rocketInitialX;
+				state.rocketFlyTime = 0;
+			}
+		}
+
+
+
+
+
+
+
 
 		// ws moving
 
@@ -446,16 +519,48 @@ int main() try
 			state.camControl.posY -= kMovementPerSecond_ * deltaTime * currentSpeed;
 		}
 
-
-
-
 		// Update the world-to-camera transformation
-		Mat44f T = make_translation({ -state.camControl.posX, -state.camControl.posY, -state.camControl.posZ });
-		Mat44f Rx = make_rotation_x(state.camControl.theta);
-		Mat44f Ry = make_rotation_y(state.camControl.phi);
-		Mat44f world2camera = Rx * Ry * T;
+		Mat44f world2camera;
+		if (state.cameraMode == 0)
+		{
+			glFrontFace(GL_CCW); // ÂÖ∂‰ªñÁõ∏Êú∫Ê®°Âºè‰ΩøÁî®ÈÄÜÊó∂Èíà
+			// Free camera mode
+			Mat44f T = make_translation({ -state.camControl.posX, -state.camControl.posY, -state.camControl.posZ });
+			Mat44f Rx = make_rotation_x(state.camControl.theta);
+			Mat44f Ry = make_rotation_y(state.camControl.phi);
+			world2camera = Rx * Ry * T;
+		}
+		else if (state.cameraMode == 1)
+		{
+			glFrontFace(GL_CCW); // ÂÖ∂‰ªñÁõ∏Êú∫Ê®°Âºè‰ΩøÁî®ÈÄÜÊó∂Èíà
+			// Follow rocket camera mode
+			world2camera = make_rotation_x(std::numbers::pi_v<float> / 3.f) *
+				make_translation({ -state.rocketXPosition, -state.rocketYPosition - 1.8f, 3.0f });
+		}
+		else if (state.cameraMode == 2)
+		{
+			glFrontFace(GL_CW); // Âú∞Èù¢Âõ∫ÂÆöÁõ∏Êú∫ÈúÄË¶ÅÈ°∫Êó∂Èíà
+			// Ground-fixed camera setup
+			Vec3f camPos = state.groundCameraPosition;
+			Vec3f rocketPos = { state.rocketXPosition, state.rocketYPosition, -5.0f };
 
+			// Compute forward, right, and up vectors
+			Vec3f forward = normalize(rocketPos - camPos); // Ensure forward points from camera to rocket
+			Vec3f up = { 0.0f, 1.0f, 0.0f };              // World up vector
+			Vec3f right = normalize(cross(up, forward));  // Compute right vector
+			up = normalize(cross(forward, right));        // Recompute up to ensure orthogonality
 
+			// Build the view matrix
+			world2camera = {
+				 right.x,    right.y,    right.z,   0.0f ,
+				 up.x,       up.y,       up.z,      0.0f,
+				 -forward.x, -forward.y, -forward.z, 0.0f ,
+				 0.0f,       0.0f,       0.0f,      1.0f 
+			};
+
+			// Translate to camera position
+			world2camera = world2camera * make_translation(-camPos);
+		}
 
 
 
@@ -491,22 +596,21 @@ int main() try
 
 
 
-		// ª∫¥Ê uniform ±‰¡øµÿ÷∑
+
 		GLint useTextureLoc = glGetUniformLocation(prog.programId(), "useTexture");
 		GLint projCameraWorldLoc = glGetUniformLocation(prog.programId(), "uProjCameraWorld");
 		GLint uNormalMatrixLoc = glGetUniformLocation(prog.programId(), "uNormalMatrix");
 
 
-		//glUniformMatrix4fv(projCameraWorldLoc, 1, GL_TRUE, projCameraWorld.v);
+
 
 		Mat33f normalMatrix = mat44_to_mat33(transpose(invert(model2world)));
-		
+
 		glUniformMatrix3fv(uNormalMatrixLoc // uNormalMatrixLoc = 1
 			, 1, GL_TRUE, normalMatrix.v);
 
 
-		//Mat44f langersoModel2World = make_translation({ 0, 0, 0 });
-		//Mat44f projCameraWorldLangerso = projection * world2camera * langersoModel2World;
+
 		// land draw
 		glUniform1i(useTextureLoc, GL_TRUE);
 		glActiveTexture(GL_TEXTURE0);
@@ -514,50 +618,75 @@ int main() try
 		glBindVertexArray(vaoModels);
 		glUniformMatrix4fv(projCameraWorldLoc, 1, GL_TRUE, projCameraWorld.v);
 		glDrawArrays(GL_TRIANGLES, 0, vertexCounterM);
-		glBindVertexArray(0);
 
+		// Point light parameters
+		Vec3f pointLightPositions[3] = {
+		{13.5f, 5.0f, 0.0f},     // Position of the first point light
+		{0.0f, 5.0f, 13.5f},   // Position of the second point light
+		{-13.5f, 5.0f, 0.0f}      // Position of the third point light};
+		};
 
+		Vec3f pointLightColors[3] = {
+		{1.0f, 0.0f, 0.0f},     // Red color for the first point light
+		{0.0f, 1.0f, 0.0f},     // Green color for the second point light
+		{0.0f, 0.0f, 1.0f}      // Blue color for the third point light
+		};
+
+		float pointLightIntensities[3] = { 1.0f, 0.8f, 1.2f };   // Intensities for the point lights
+		float pointLightAttenuations[3] = { 0.1f, 0.2f, 0.15f }; // Attenuation factors for the point lights
+
+		// Pass point light data to the shader
+		for (int i = 0; i < 3; ++i) {
+			glUniform3fv(7 + i, 1, &pointLightPositions[i].x);   // Set position of the i-th point light (uPointLightPos)
+			glUniform3fv(10 + i, 1, &pointLightColors[i].x);     // Set color of the i-th point light (uPointLightColor)
+			glUniform1f(13 + i, pointLightIntensities[i]);       // Set intensity of the i-th point light (uPointLightIntensity)
+			glUniform1f(16 + i, pointLightAttenuations[i]);      // Set attenuation of the i-th point light (uPointLightAttenuation)
+		}
 
 		glUniform1i(useTextureLoc, GL_FALSE);
 		//rocket draw 
-		Mat44f rocketModel2World = make_translation({ 4.5f, 0.25f, -5.0f }) ;
+		Mat44f rocketModel2World = make_translation({ state.rocketXPosition,state.rocketYPosition, -5.0f });
 		Mat44f projCameraWorldRocket = projection * world2camera * rocketModel2World;
 		glUniformMatrix4fv(projCameraWorldLoc, 1, GL_TRUE, projCameraWorldRocket.v);
-		
-		//glBindVertexArray(vaoModelRocket);
-		//glDrawArrays(GL_TRIANGLES, 0, vertexCounterMRocket);
-		//glBindVertexArray(0);
-	
 		//CUBE
 		glBindVertexArray(vao);
-		
+
 		glDrawArrays(GL_TRIANGLES, 0, sizeof(kCubePositions));
 
-		//±Ì≈Ã x
+
 		glBindVertexArray(vaoCylinder);
 		glDrawArrays(GL_TRIANGLES, 0, cylinderVertexCount);
 		glBindVertexArray(0);
-		//∂•
+
 		glBindVertexArray(vaoSquareCone);
 		glDrawArrays(GL_TRIANGLES, 0, squareConeVertexCount);
 		glBindVertexArray(0);
-
-		//±Ì≈Ã y
+		//watch
 		glUniform1i(useTextureLoc, GL_FALSE);
-		Mat44f YModel2World = make_translation({ 4.5f, 0.25f, -5.0f }) * make_rotation_y(std::numbers::pi_v<float> / 2.f);
+		Mat44f YModel2World = make_translation({ state.rocketXPosition, state.rocketYPosition, -5.0f }) * make_rotation_y(std::numbers::pi_v<float> / 2.f);
 		Mat44f projCameraWorldY = projection * world2camera * YModel2World;
 		glUniformMatrix4fv(projCameraWorldLoc, 1, GL_TRUE, projCameraWorldY.v);
 
 
 		Mat33f normalMatrixY = mat44_to_mat33(transpose(invert(YModel2World)));
 		glUniformMatrix3fv(uNormalMatrixLoc, 1, GL_TRUE, normalMatrixY.v);
-		
+
 		glBindVertexArray(vaoCylinder);
 		glDrawArrays(GL_TRIANGLES, 0, cylinderVertexCount);
 		glBindVertexArray(0);
 
+		//pad
+		Mat44f Model2WorldPad = make_translation({ 4.5f,0.005f, -5.0f });
+		Mat44f projCameraWorldPad = projection * world2camera * Model2WorldPad;
+		glUniformMatrix4fv(projCameraWorldLoc, 1, GL_TRUE, projCameraWorldPad.v);
+		glBindVertexArray(launchpadVAO);
+		glDrawArrays(GL_TRIANGLES, 0, vertexCounterL);
+		glBindVertexArray(0);
+
+
+
 		//square struct
-		Mat44f Model2WorldS = make_translation({ 4.5f, 0.35f, -5.0f }) * make_rotation_y(std::numbers::pi_v<float> / 2.f) * make_scaling(1.1f, 0.28f, 1.1f);
+		Mat44f Model2WorldS = make_translation({ state.rocketXPosition,state.rocketYPosition + 0.1f, -5.0f }) * make_rotation_y(std::numbers::pi_v<float> / 2.f) * make_scaling(1.1f, 0.28f, 1.1f);
 		Mat44f projCameraWorldS = projection * world2camera * Model2WorldS;
 		glUniformMatrix4fv(projCameraWorldLoc, 1, GL_TRUE, projCameraWorldS.v);
 		glBindVertexArray(vaoS);
@@ -566,7 +695,7 @@ int main() try
 
 
 		//ptr
-		Mat44f Model2WorldP = make_translation({ 4.5f, 0.35f, -5.0f }) * make_scaling(2.5f,.1f,.1f);
+		Mat44f Model2WorldP = make_translation({ state.rocketXPosition, 0.1f + state.rocketYPosition, -5.0f }) * make_scaling(2.5f, .1f, .1f);
 		Mat44f projCameraWorldP = projection * world2camera * Model2WorldP;
 		glUniformMatrix4fv(projCameraWorldLoc, 1, GL_TRUE, projCameraWorldP.v);
 
@@ -574,7 +703,7 @@ int main() try
 
 		glDrawArrays(GL_TRIANGLES, 0, sizeof(k2CubePositions));
 
-		Mat44f Model2WorldP2 = make_translation({ 4.5f, 0.35f, -5.0f }) * make_rotation_y(std::numbers::pi_v<float> / 2.f) * make_scaling(2.5f, .1f, .1f);
+		Mat44f Model2WorldP2 = make_translation({ state.rocketXPosition, 0.1f + state.rocketYPosition, -5.0f }) * make_rotation_y(std::numbers::pi_v<float> / 2.f) * make_scaling(2.5f, .1f, .1f);
 		Mat44f projCameraWorldP2 = projection * world2camera * Model2WorldP2;
 		glUniformMatrix4fv(projCameraWorldLoc, 1, GL_TRUE, projCameraWorldP2.v);
 
@@ -582,7 +711,7 @@ int main() try
 
 		glDrawArrays(GL_TRIANGLES, 0, sizeof(k2CubePositions));
 
-		Mat44f Model2WorldP3 = make_translation({ 4.5f, 0.35f, -5.015 }) * make_rotation_x(std::numbers::pi_v<float> / 1.5f) * make_scaling(2.5f, .18f, .1f);
+		Mat44f Model2WorldP3 = make_translation({ state.rocketXPosition, 0.1f + state.rocketYPosition, -5.015 }) * make_rotation_x(std::numbers::pi_v<float> / 1.5f) * make_scaling(2.5f, .18f, .1f);
 		Mat44f projCameraWorldP3 = projection * world2camera * Model2WorldP3;
 		glUniformMatrix4fv(projCameraWorldLoc, 1, GL_TRUE, projCameraWorldP3.v);
 
@@ -590,19 +719,16 @@ int main() try
 
 		glDrawArrays(GL_TRIANGLES, 0, sizeof(k2CubePositions));
 
-		Mat44f Model2WorldP4 = make_translation({ 4.485f, 0.35f, -5.0 }) * make_rotation_z(std::numbers::pi_v<float> / 3.5f) * make_rotation_y(std::numbers::pi_v<float> / 2.f) * make_scaling(2.5f, .18f, .1f);
+		Mat44f Model2WorldP4 = make_translation({ state.rocketXPosition - 0.015f, 0.1f + state.rocketYPosition, -5.0 }) * make_rotation_z(std::numbers::pi_v<float> / 3.5f) * make_rotation_y(std::numbers::pi_v<float> / 2.f) * make_scaling(2.5f, .18f, .1f);
 		Mat44f projCameraWorldP4 = projection * world2camera * Model2WorldP4;
 		glUniformMatrix4fv(projCameraWorldLoc, 1, GL_TRUE, projCameraWorldP4.v);
-
 		glBindVertexArray(vaoPtr);
-
 		glDrawArrays(GL_TRIANGLES, 0, sizeof(k2CubePositions));
-
 
 
 		//engine1 
 		glUniform1i(useTextureLoc, GL_FALSE);
-		Mat44f Eng1Model2World = make_translation({ 4.515f, 0.015f, -5.065f }) * make_rotation_z(std::numbers::pi_v<float> / 2.f) ;//
+		Mat44f Eng1Model2World = make_translation({ state.rocketXPosition + 0.015f, state.rocketYPosition - 0.235f, -5.065f }) * make_rotation_z(std::numbers::pi_v<float> / 2.f);//
 		Mat44f projCameraWorldEng1 = projection * world2camera * Eng1Model2World;
 		glUniformMatrix4fv(projCameraWorldLoc, 1, GL_TRUE, projCameraWorldEng1.v);
 		glBindVertexArray(vaoCylinder2);
@@ -613,11 +739,8 @@ int main() try
 		glDrawArrays(GL_TRIANGLES, 0, sizeof(kCubePositions));
 		glBindVertexArray(0);
 
-
-
-		
 		//engine2		 
-		Mat44f Model2WorldEng2 = make_translation({ 4.515f, 0.015f, -4.935f }) * make_rotation_z(std::numbers::pi_v<float> / 2.f);
+		Mat44f Model2WorldEng2 = make_translation({ state.rocketXPosition + 0.015f, state.rocketYPosition - 0.235f, -4.935f }) * make_rotation_z(std::numbers::pi_v<float> / 2.f);
 		Mat44f projCameraWorldEng2 = projection * world2camera * Model2WorldEng2;
 		glUniformMatrix4fv(projCameraWorldLoc, 1, GL_TRUE, projCameraWorldEng2.v);
 		glBindVertexArray(vaoCylinder2);
@@ -627,9 +750,8 @@ int main() try
 		glDrawArrays(GL_TRIANGLES, 0, coneVertexCount1);
 		glBindVertexArray(0);
 
-
 		//engine3	 
-		Mat44f Model2WorldEng3 = make_translation({ 4.65, 0.015f, -4.935f }) * make_rotation_z(std::numbers::pi_v<float> / 2.f);
+		Mat44f Model2WorldEng3 = make_translation({ state.rocketXPosition + 0.15f, state.rocketYPosition - 0.235f, -4.935f }) * make_rotation_z(std::numbers::pi_v<float> / 2.f);
 		Mat44f projCameraWorldEng3 = projection * world2camera * Model2WorldEng3;
 		glUniformMatrix4fv(projCameraWorldLoc, 1, GL_TRUE, projCameraWorldEng3.v);
 		glBindVertexArray(vaoCylinder2);
@@ -639,7 +761,7 @@ int main() try
 		glDrawArrays(GL_TRIANGLES, 0, coneVertexCount1);
 		glBindVertexArray(0);
 		//engine4		  
-		Mat44f Model2WorldEng4 = make_translation({ 4.65, 0.015f,  -5.065f }) * make_rotation_z(std::numbers::pi_v<float> / 2.f);
+		Mat44f Model2WorldEng4 = make_translation({ state.rocketXPosition + 0.15f,state.rocketYPosition - 0.235f,  -5.065f }) * make_rotation_z(std::numbers::pi_v<float> / 2.f);
 		Mat44f projCameraWorldEng4 = projection * world2camera * Model2WorldEng4;
 		glUniformMatrix4fv(projCameraWorldLoc, 1, GL_TRUE, projCameraWorldEng4.v);
 		glBindVertexArray(vaoCylinder2);
@@ -648,40 +770,6 @@ int main() try
 		glBindVertexArray(vaoCone1);
 		glDrawArrays(GL_TRIANGLES, 0, coneVertexCount1);
 		glBindVertexArray(0);
-		//// ªÊ÷∆‘≤◊∂ engine1
-		//Mat44f coneModel2WorldEng1 = make_translation({ 4.515f, 0.25f, -5.065f }) * make_rotation_z(std::numbers::pi_v<float> / 2.f);
-		//Mat44f projCameraWorldConeEng1 = projection * world2camera * coneModel2WorldEng1;
-		//glUniformMatrix4fv(projCameraWorldLoc, 1, GL_TRUE, projCameraWorldConeEng1.v);
-		//glBindVertexArray(vaoCone1);
-		//glDrawArrays(GL_TRIANGLES, 0, coneVertexCount1);
-		//glBindVertexArray(0);
-
-		//// ªÊ÷∆‘≤◊∂ engine2
-		//Mat44f coneModel2WorldEng2 = make_translation({ 4.515f, 0.065f, -4.935f }) * make_rotation_z(std::numbers::pi_v<float> / 2.f);
-		//Mat44f projCameraWorldConeEng2 = projection * world2camera * coneModel2WorldEng2;
-		//glUniformMatrix4fv(projCameraWorldLoc, 1, GL_TRUE, projCameraWorldConeEng2.v);
-		//glBindVertexArray(vaoCone1);
-		//glDrawArrays(GL_TRIANGLES, 0, coneVertexCount1);
-		//glBindVertexArray(0);
-
-		//// ªÊ÷∆‘≤◊∂ engine3
-		//Mat44f coneModel2WorldEng3 = make_translation({ 4.65f, 0.065f, -4.935f }) * make_rotation_z(std::numbers::pi_v<float> / 2.f);
-		//Mat44f projCameraWorldConeEng3 = projection * world2camera * coneModel2WorldEng3;
-		//glUniformMatrix4fv(projCameraWorldLoc, 1, GL_TRUE, projCameraWorldConeEng3.v);
-		//glBindVertexArray(vaoCone1);
-		//glDrawArrays(GL_TRIANGLES, 0, coneVertexCount1);
-		//glBindVertexArray(0);
-
-		//// ªÊ÷∆‘≤◊∂ engine4
-		//Mat44f coneModel2WorldEng4 = make_translation({ 4.65f, 0.065f, -5.065f }) * make_rotation_z(std::numbers::pi_v<float> / 2.f);
-		//Mat44f projCameraWorldConeEng4 = projection * world2camera * coneModel2WorldEng4;
-		//glUniformMatrix4fv(projCameraWorldLoc, 1, GL_TRUE, projCameraWorldConeEng4.v);
-		//glBindVertexArray(vaoCone1);
-		//glDrawArrays(GL_TRIANGLES, 0, coneVertexCount1);
-		//glBindVertexArray(0);
-
-
-		
 
 
 		OGL_CHECKPOINT_DEBUG();
@@ -721,6 +809,18 @@ namespace
 
 		if (auto* state = static_cast<State_*>(glfwGetWindowUserPointer(aWindow)))
 		{
+			if (GLFW_KEY_C == aKey && aAction == GLFW_PRESS)
+			{
+				state->cameraMode = (state->cameraMode + 1) % 3; // Cycle through camera modes (0, 1, 2)
+
+				if (state->cameraMode == 0)
+					std::printf("Switched to Free Camera Mode\n");
+				else if (state->cameraMode == 1)
+					std::printf("Switched to Follow Rocket Camera Mode\n");
+				else if (state->cameraMode == 2)
+					std::printf("Switched to Ground-Fixed Camera Mode\n");
+			}
+
 			//Moving
 			if (GLFW_KEY_W == aKey)
 			{
@@ -780,6 +880,24 @@ namespace
 					state->camControl.speedUp = true;
 				else if (aAction == GLFW_RELEASE)
 					state->camControl.speedUp = false;
+			}
+			//fire
+			if (auto* state = static_cast<State_*>(glfwGetWindowUserPointer(aWindow)))
+			{
+				// ÂÖ∂‰ªñÊåâÈîÆÂ§ÑÁêÜ...
+
+				if (GLFW_KEY_F == aKey && aAction == GLFW_PRESS) {
+					// ÂàáÊç¢ÁÅ´ÁÆ≠È£ûË°åÁä∂ÊÄÅ
+					state->rocketFlying = !state->rocketFlying;
+				}
+			}
+
+			if (GLFW_KEY_R == aKey && aAction == GLFW_PRESS)
+			{
+				state->rocketFlying = false;  // ÂÅúÊ≠¢È£ûË°å
+				state->rocketYPosition = state->rocketInitialY;  // ÈáçÁΩÆÈ´òÂ∫¶
+				state->rocketXPosition = state->rocketInitialX;  // ÈáçÁΩÆÈ´òÂ∫¶
+				state->rocketFlyTime = 0;
 			}
 
 
@@ -868,5 +986,5 @@ namespace
 		if (window)
 			glfwDestroyWindow(window);
 	}
-}
 
+}
