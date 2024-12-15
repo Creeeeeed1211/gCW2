@@ -25,7 +25,7 @@ SimpleMeshData make_cone(bool aCapped, std::size_t aSubdivs, Vec3f aColor, Mat44
         pos.push_back(apex);
 
         // Normal
-        Vec3f normal1 = normalize(cross(apex - base1, base2 - base1));
+        Vec3f normal1 = {0,0,0};
         normals.push_back(normal1);
         normals.push_back(normal1);
         normals.push_back(normal1);
@@ -71,14 +71,14 @@ SimpleMeshData make_square_cone(bool aCapped, Vec3f aColor, Mat44f aPreTransform
     std::vector<Vec3f> positions;
     std::vector<Vec3f> normals;
 
-    // ¶¥µã¶¨Òå
-    Vec3f apex = { 0.f, 0.f, 1.f };  // ×¶¶¥µã
-    Vec3f base0 = { -0.5f, -0.5f, 0.f }; // ËÄ±ßĞÎµ×Ãæ¶¥µã 1
-    Vec3f base1 = { 0.5f, -0.5f, 0.f }; // ËÄ±ßĞÎµ×Ãæ¶¥µã 2
-    Vec3f base2 = { 0.5f,  0.5f, 0.f }; // ËÄ±ßĞÎµ×Ãæ¶¥µã 3
-    Vec3f base3 = { -0.5f,  0.5f, 0.f }; // ËÄ±ßĞÎµ×Ãæ¶¥µã 4
+    // é¡¶ç‚¹å®šä¹‰
+    Vec3f apex = { 0.f, 0.f, 1.f };  // é”¥é¡¶ç‚¹
+    Vec3f base0 = { -0.5f, -0.5f, 0.f }; // å››è¾¹å½¢åº•é¢é¡¶ç‚¹ 1
+    Vec3f base1 = { 0.5f, -0.5f, 0.f }; // å››è¾¹å½¢åº•é¢é¡¶ç‚¹ 2
+    Vec3f base2 = { 0.5f,  0.5f, 0.f }; // å››è¾¹å½¢åº•é¢é¡¶ç‚¹ 3
+    Vec3f base3 = { -0.5f,  0.5f, 0.f }; // å››è¾¹å½¢åº•é¢é¡¶ç‚¹ 4
 
-    // ×¶Ìå²àÃæ£¨4 ¸öÈı½ÇĞÎ£©
+    // é”¥ä½“ä¾§é¢ï¼ˆ4 ä¸ªä¸‰è§’å½¢ï¼‰
     positions.push_back(base0);
     positions.push_back(base1);
     positions.push_back(apex);
@@ -95,7 +95,7 @@ SimpleMeshData make_square_cone(bool aCapped, Vec3f aColor, Mat44f aPreTransform
     positions.push_back(base0);
     positions.push_back(apex);
 
-    // ·¨Ïß¼ÆËã£¨Õë¶ÔÃ¿¸öÈı½ÇĞÎ£©
+    // æ³•çº¿è®¡ç®—ï¼ˆé’ˆå¯¹æ¯ä¸ªä¸‰è§’å½¢ï¼‰
     for (size_t i = 0; i < positions.size(); i += 3) {
         Vec3f p0 = positions[i];
         Vec3f p1 = positions[i + 1];
@@ -107,9 +107,9 @@ SimpleMeshData make_square_cone(bool aCapped, Vec3f aColor, Mat44f aPreTransform
         normals.push_back(normal);
     }
 
-    // µ×Ãæ
+    // åº•é¢
     if (aCapped) {
-        Vec3f baseNormal = { 0.f, 0.f, -1.f }; // µ×Ãæ³¯ÏÂµÄ·¨Ïß
+        Vec3f baseNormal = { 0.f, 0.f, -1.f }; // åº•é¢æœä¸‹çš„æ³•çº¿
         positions.push_back(base0);
         positions.push_back(base3);
         positions.push_back(base2);
@@ -126,21 +126,21 @@ SimpleMeshData make_square_cone(bool aCapped, Vec3f aColor, Mat44f aPreTransform
         normals.push_back(baseNormal);
     }
 
-    // Ó¦ÓÃ±ä»»¾ØÕó
+    // åº”ç”¨å˜æ¢çŸ©é˜µ
     for (auto& pos : positions) {
         Vec4f pos4{ pos.x, pos.y, pos.z, 1.f };
         Vec4f transformed = aPreTransform * pos4;
         pos = { transformed.x / transformed.w, transformed.y / transformed.w, transformed.z / transformed.w };
     }
 
-    // ÑÕÉ«¸³Öµ
+    // é¢œè‰²èµ‹å€¼
     std::vector<Vec3f> colors(positions.size(), aColor);
 
     return SimpleMeshData{
         std::move(positions),
         std::move(colors),
         std::move(normals),
-        {} // ÎŞÎÆÀí×ø±ê
+        {} // æ— çº¹ç†åæ ‡
     };
 }
 
